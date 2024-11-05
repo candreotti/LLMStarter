@@ -8,10 +8,12 @@ using System.Text.Json;
 using Azure.AI.OpenAI;
 
 using OpenAI.Chat;
+using OpenAI.Embeddings;
 
 /*
 
 This chat app needs the following environment variables:
+- AZURE_EMBEDDING_MODEL_NAME
 - AZURE_MODEL_NAME
 - AZURE_SECRET_KEY
 - AZURE_ENDPOINT
@@ -47,6 +49,7 @@ internal class Program
         var endpoint = GetAzureEndpoint();
         var secretKey = GetAzureSecretKey();
         var modelname = GetAzureModelName();
+        var embeddingModelName = GetAzureEmbeddingModelName();
 
         var clientOptions = new AzureOpenAIClientOptions()
         {
@@ -93,7 +96,13 @@ internal class Program
             options.Tools.Add(tool);
         }
 
-        return ChatLoop(chatClient, options, systemPrompt);
+        EmbeddingClient embeddingClient = client.GetEmbeddingClient(embeddingModelName);
+        EmbeddingGenerationOptions embeddingGenerationOptions = new()
+        {
+            Dimensions = 1536,
+        };
+
+        return ChatLoop(chatClient, options, embeddingClient, embeddingGenerationOptions, systemPrompt);
     }
 
     /// <summary>
@@ -120,6 +129,8 @@ internal class Program
     private Task ChatLoop(
         ChatClient chatClient,
         ChatCompletionOptions options,
+        EmbeddingClient embeddingClient,
+        EmbeddingGenerationOptions embeddingGenerationOptions,
         string? systemprompt)
     {
         List<ChatMessage> prompts = new();
@@ -141,6 +152,10 @@ internal class Program
                     Console.WriteLine("Goodbye!");
                     return Task.CompletedTask;
                 }
+
+                var embeddingResponse = embeddingClient.GenerateEmbedding(userMessage, embeddingGenerationOptions);
+                var embedding = embeddingResponse.Value;
+                Console.WriteLine($"EMBEDDING: User prompt generated the following embedding vector: {GetEmbeddingVectorAsString(embedding)}");
 
                 prompts.Add(ChatMessage.CreateUserMessage(userMessage));
             }
@@ -277,6 +292,12 @@ internal class Program
         //    completion.Content.Select(part => part.Text));
     }
 
+    private string GetEmbeddingVectorAsString(OpenAIEmbedding embedding)
+    {
+        string vectorString = JsonSerializer.Serialize(embedding.ToFloats());
+        return vectorString;
+    }
+
 
     private string GetAzureEndpoint()
         => Environment.GetEnvironmentVariable("AZURE_ENDPOINT") ?? throw new Exception("AZURE_ENDPOINT not found");
@@ -286,6 +307,9 @@ internal class Program
 
     private string GetAzureModelName()
         => Environment.GetEnvironmentVariable("AZURE_MODEL_NAME") ?? throw new Exception("AZURE_MODEL_NAME not found");
+
+    private string GetAzureEmbeddingModelName()
+        => Environment.GetEnvironmentVariable("AZURE_EMBEDDING_MODEL_NAME") ?? throw new Exception("AZURE_EMBEDDING_MODEL_NAME not found");
 
     /// <summary>
     /// This is the full Tool definition as defined by OpenAI.
